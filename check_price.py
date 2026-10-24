@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 URL = "https://www.leskamas.com/es/vende-kamas.html"
 SERVER = "Talok"
-THRESHOLD = 1.89  # euros por millón
+THRESHOLDS = [1.79, 1.89, 1.99]  # euros por millón
 STATE_FILE = "state.json"
 
 
@@ -44,9 +44,13 @@ def send_telegram(text):
 def load_state():
     try:
         with open(STATE_FILE) as f:
-            return json.load(f)
+            alerted = json.load(f).get("alerted", [])
     except Exception:
-        return {"alerted": False}
+        alerted = []
+    # Compatibilidad con el formato antiguo (true/false)
+    if isinstance(alerted, bool):
+        alerted = [THRESHOLDS[0]] if alerted else []
+    return {"alerted": alerted}
 
 
 def save_state(state):
@@ -57,15 +61,18 @@ def save_state(state):
 def main():
     price = get_price()
     state = load_state()
-    print(f"{SERVER}: {price} EUR/M (umbral {THRESHOLD}, avisado={state['alerted']})")
+    print(f"{SERVER}: {price} EUR/M (umbrales {THRESHOLDS}, avisados={state['alerted']})")
 
-    if price > THRESHOLD and not state["alerted"]:
-        send_telegram(f"{SERVER} está a {price} €/M (por encima de {THRESHOLD} €/M)")
-        state["alerted"] = True
-    elif price <= THRESHOLD and state["alerted"]:
-        # Ha vuelto a bajar: se rearma el aviso para la próxima subida
-        state["alerted"] = False
+    # Rearmar los umbrales que el precio ya ha dejado atrás por debajo
+    alerted = [t for t in state["alerted"] if price > t]
 
+    # Umbrales superados que todavía no se han avisado
+    nuevos = [t for t in THRESHOLDS if price > t and t not in alerted]
+    if nuevos:
+        send_telegram(f"{SERVER} está a {price} €/M (supera {max(nuevos)} €/M)")
+        alerted += nuevos
+
+    state["alerted"] = sorted(alerted)
     save_state(state)
 
 
@@ -75,4 +82,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)  # GitHub te manda un email si el workflow falla
+
 

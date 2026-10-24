@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 URL = "https://www.leskamas.com/es/vende-kamas.html"
 SERVER = "Talok"
-THRESHOLD = 1.79  # euros por millón
+THRESHOLD = 1.89  # euros por millón
 STATE_FILE = "state.json"
 
 

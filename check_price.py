@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,14 +11,15 @@ URL = "https://www.leskamas.com/es/vende-kamas.html"
 SERVER = "Talok"
 THRESHOLDS = [1.79, 1.89, 1.99]  # euros por millón
 STATE_FILE = "state.json"
+MAX_FALLOS = 12  # comprobaciones seguidas fallidas antes de avisarte
 
 
-def get_price():
+def get_price_once():
     r = requests.get(
         URL,
         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"},
-        timeout=30,
+        timeout=20,
     )
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
@@ -28,6 +30,17 @@ def get_price():
             if m:
                 return float(m.group(1).replace(",", "."))
     raise RuntimeError(f"No encuentro la fila de {SERVER} en la tabla")
+
+
+def get_price(intentos=3):
+    for i in range(intentos):
+        try:
+            return get_price_once()
+        except Exception as e:
+            print(f"Intento {i + 1}/{intentos} fallido: {e}")
+            if i < intentos - 1:
+                time.sleep(5)
+    raise RuntimeError("No se pudo leer el precio tras varios intentos")
 
 
 def send_telegram(text):
@@ -44,13 +57,14 @@ def send_telegram(text):
 def load_state():
     try:
         with open(STATE_FILE) as f:
-            alerted = json.load(f).get("alerted", [])
+            data = json.load(f)
     except Exception:
-        alerted = []
+        data = {}
+    alerted = data.get("alerted", [])
     # Compatibilidad con el formato antiguo (true/false)
     if isinstance(alerted, bool):
         alerted = [THRESHOLDS[0]] if alerted else []
-    return {"alerted": alerted}
+    return {"alerted": alerted, "fallos": int(data.get("fallos", 0))}
 
 
 def save_state(state):
@@ -59,8 +73,22 @@ def save_state(state):
 
 
 def main():
-    price = get_price()
     state = load_state()
+
+    try:
+        price = get_price()
+    except Exception as e:
+        state["fallos"] += 1
+        print(f"Sin precio ({state['fallos']} seguidas): {e}")
+        if state["fallos"] == MAX_FALLOS:
+            send_telegram(
+                f"⚠️ Llevo {MAX_FALLOS} comprobaciones seguidas sin poder leer "
+                f"el precio de {SERVER}. Revisa la web o el script."
+            )
+        save_state(state)
+        return  # sale sin error para que GitHub no mande emails
+
+    state["fallos"] = 0
     print(f"{SERVER}: {price} EUR/M (umbrales {THRESHOLDS}, avisados={state['alerted']})")
 
     # Rearmar los umbrales que el precio ya ha dejado atrás por debajo
@@ -81,6 +109,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)  # GitHub te manda un email si el workflow falla
-
-
+        sys.exit(1)

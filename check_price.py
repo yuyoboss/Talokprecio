@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 URL = "https://www.leskamas.com/es/vende-kamas.html"
 SERVER = "Talok"
-THRESHOLDS = [1.79, 1.89, 1.99]  # euros por millón
+THRESHOLDS = [1.79, 1.849, 1.89, 1.99]    # euros por millón
 STATE_FILE = "state.json"
 MAX_FALLOS = 12  # comprobaciones seguidas fallidas antes de avisarte
 
